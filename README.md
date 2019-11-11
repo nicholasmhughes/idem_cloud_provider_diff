@@ -1,2 +1,5 @@
 # idem_cloud_provider_diff
-This is just to showcase changes to port states between Salt and Idem
+
+## NOTE: THIS IS NOT FUNCTIONAL SOFTWARE!!
+
+This is just to showcase the changes required to port states between Salt and Idem. Check out the commit history.
