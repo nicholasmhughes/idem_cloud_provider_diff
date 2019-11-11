@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 '''
-Azure (ARM) Resource State Module
+Azure Resource Manager (ARM) Resource Group State Module
 
-.. versionadded:: 2019.2.0
+.. versionadded:: 1.0.0
 
 :maintainer: <devops@eitr.tech>
 :maturity: new
 :depends:
-    * `azure <https://pypi.python.org/pypi/azure>`_ >= 2.0.0
-    * `azure-common <https://pypi.python.org/pypi/azure-common>`_ >= 1.1.8
-    * `azure-mgmt <https://pypi.python.org/pypi/azure-mgmt>`_ >= 1.0.0
-    * `azure-mgmt-compute <https://pypi.python.org/pypi/azure-mgmt-compute>`_ >= 1.0.0
-    * `azure-mgmt-network <https://pypi.python.org/pypi/azure-mgmt-network>`_ >= 1.7.1
-    * `azure-mgmt-resource <https://pypi.python.org/pypi/azure-mgmt-resource>`_ >= 1.1.0
-    * `azure-mgmt-storage <https://pypi.python.org/pypi/azure-mgmt-storage>`_ >= 1.0.0
-    * `azure-mgmt-web <https://pypi.python.org/pypi/azure-mgmt-web>`_ >= 0.32.0
+    * `azure <https://pypi.python.org/pypi/azure>`_ >= 4.0.0
+    * `azure-common <https://pypi.python.org/pypi/azure-common>`_ >= 1.1.23
+    * `azure-mgmt <https://pypi.python.org/pypi/azure-mgmt>`_ >= 4.0.0
+    * `azure-mgmt-compute <https://pypi.python.org/pypi/azure-mgmt-compute>`_ >= 4.6.2
+    * `azure-mgmt-network <https://pypi.python.org/pypi/azure-mgmt-network>`_ >= 2.7.0
+    * `azure-mgmt-resource <https://pypi.python.org/pypi/azure-mgmt-resource>`_ >= 2.2.0
+    * `azure-mgmt-storage <https://pypi.python.org/pypi/azure-mgmt-storage>`_ >= 2.0.0
+    * `azure-mgmt-web <https://pypi.python.org/pypi/azure-mgmt-web>`_ >= 0.35.0
     * `azure-storage <https://pypi.python.org/pypi/azure-storage>`_ >= 0.34.3
-    * `msrestazure <https://pypi.python.org/pypi/msrestazure>`_ >= 0.4.21
+    * `msrestazure <https://pypi.python.org/pypi/msrestazure>`_ >= 0.6.2
 :platform: linux
 
 :configuration: This module requires Azure Resource Manager credentials to be passed as a dictionary of
@@ -44,11 +44,11 @@ Azure (ARM) Resource State Module
       * ``AZURE_US_GOV_CLOUD``
       * ``AZURE_GERMAN_CLOUD``
 
-    Example Pillar for Azure Resource Manager authentication:
+    Example configuration for Azure Resource Manager authentication:
 
     .. code-block:: yaml
 
-        azurearm:
+        azurerm:
             user_pass_auth:
                 subscription_id: 3287abc8-f98a-c678-3bde-326766fd3617
                 username: fletch
@@ -64,9 +64,8 @@ Azure (ARM) Resource State Module
 
     .. code-block:: jinja
 
-        {% set profile = salt['pillar.get']('azurearm:mysubscription') %}
         Ensure resource group exists:
-            azurearm_resource.resource_group_present:
+            azurerm.resource.group.present:
                 - name: my_rg
                 - location: westus
                 - tags:
@@ -75,7 +74,7 @@ Azure (ARM) Resource State Module
                 - connection_auth: {{ profile }}
 
         Ensure resource group is absent:
-            azurearm_resource.resource_group_absent:
+            azurerm.resource.group.absent:
                 - name: other_rg
                 - connection_auth: {{ profile }}
 
@@ -86,24 +85,12 @@ from __future__ import absolute_import
 import json
 import logging
 
-# Import Salt libs
-import salt.utils.files
-
-__virtualname__ = 'azurearm_resource'
-
 log = logging.getLogger(__name__)
 
 
-def __virtual__():
+async def present(hub, ctx, name, location, managed_by=None, tags=None, connection_auth=None, **kwargs):
     '''
-    Only make this state available if the azurearm_resource module is available.
-    '''
-    return __virtualname__ if 'azurearm_resource.resource_group_check_existence' in __salt__ else False
-
-
-def resource_group_present(name, location, managed_by=None, tags=None, connection_auth=None, **kwargs):
-    '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Ensure a resource group exists.
 
@@ -130,7 +117,7 @@ def resource_group_present(name, location, managed_by=None, tags=None, connectio
     .. code-block:: yaml
 
         Ensure resource group exists:
-            azurearm_resource.resource_group_present:
+            azurerm.resource.group.present:
                 - name: group1
                 - location: eastus
                 - tags:
@@ -151,18 +138,18 @@ def resource_group_present(name, location, managed_by=None, tags=None, connectio
 
     group = {}
 
-    present = __salt__['azurearm_resource.resource_group_check_existence'](name, **connection_auth)
+    present = await hub.exec.azurerm.resource.group.check_existence(name, **connection_auth)
 
     if present:
-        group = __salt__['azurearm_resource.resource_group_get'](name, **connection_auth)
-        ret['changes'] = __utils__['dictdiffer.deep_diff'](group.get('tags', {}), tags or {})
+        group = await hub.exec.azurerm.resource.group.get(name, **connection_auth)
+        ret['changes'] = await hub.exec.utils.dictdiffer.deep_diff(group.get('tags', {}), tags or {})
 
         if not ret['changes']:
             ret['result'] = True
             ret['comment'] = 'Resource group {0} is already present.'.format(name)
             return ret
 
-        if __opts__['test']:
+        if ctx['test']:
             ret['comment'] = 'Resource group {0} tags would be updated.'.format(name)
             ret['result'] = None
             ret['changes'] = {
@@ -171,7 +158,7 @@ def resource_group_present(name, location, managed_by=None, tags=None, connectio
             }
             return ret
 
-    elif __opts__['test']:
+    elif ctx['test']:
         ret['comment'] = 'Resource group {0} would be created.'.format(name)
         ret['result'] = None
         ret['changes'] = {
@@ -188,14 +175,14 @@ def resource_group_present(name, location, managed_by=None, tags=None, connectio
     group_kwargs = kwargs.copy()
     group_kwargs.update(connection_auth)
 
-    group = __salt__['azurearm_resource.resource_group_create_or_update'](
+    group = await hub.exec.azurerm.resource.group.create_or_update(
         name,
         location,
         managed_by=managed_by,
         tags=tags,
         **group_kwargs
     )
-    present = __salt__['azurearm_resource.resource_group_check_existence'](name, **connection_auth)
+    present = await hub.exec.azurerm.resource.group.check_existence(name, **connection_auth)
 
     if present:
         ret['result'] = True
@@ -210,9 +197,9 @@ def resource_group_present(name, location, managed_by=None, tags=None, connectio
     return ret
 
 
-def resource_group_absent(name, connection_auth=None):
+async def absent(hub, ctx, name, connection_auth=None):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Ensure a resource group does not exist in the current subscription.
 
@@ -236,15 +223,15 @@ def resource_group_absent(name, connection_auth=None):
 
     group = {}
 
-    present = __salt__['azurearm_resource.resource_group_check_existence'](name, **connection_auth)
+    present = await hub.exec.azurerm.resource.group.check_existence(name, **connection_auth)
 
     if not present:
         ret['result'] = True
         ret['comment'] = 'Resource group {0} is already absent.'.format(name)
         return ret
 
-    elif __opts__['test']:
-        group = __salt__['azurearm_resource.resource_group_get'](name, **connection_auth)
+    elif ctx['test']:
+        group = await hub.exec.azurerm.resource.group.get(name, **connection_auth)
 
         ret['comment'] = 'Resource group {0} would be deleted.'.format(name)
         ret['result'] = None
@@ -254,13 +241,13 @@ def resource_group_absent(name, connection_auth=None):
         }
         return ret
 
-    group = __salt__['azurearm_resource.resource_group_get'](name, **connection_auth)
-    deleted = __salt__['azurearm_resource.resource_group_delete'](name, **connection_auth)
+    group = await hub.exec.azurerm.resource.group.get(name, **connection_auth)
+    deleted = await hub.exec.azurerm.resource.group.delete(name, **connection_auth)
 
     if deleted:
         present = False
     else:
-        present = __salt__['azurearm_resource.resource_group_check_existence'](name, **connection_auth)
+        present = await hub.exec.azurerm.resource.group.check_existence(name, **connection_auth)
 
     if not present:
         ret['result'] = True

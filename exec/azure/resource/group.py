@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 '''
-Azure (ARM) Resource Execution Module
+Azure Resource Manager (ARM) Resource Group Execution Module
 
-.. versionadded:: 2019.2.0
+.. versionadded:: 1.0.0
 
 :maintainer: <devops@eitr.tech>
 :maturity: new
 :depends:
-    * `azure <https://pypi.python.org/pypi/azure>`_ >= 2.0.0
-    * `azure-common <https://pypi.python.org/pypi/azure-common>`_ >= 1.1.8
-    * `azure-mgmt <https://pypi.python.org/pypi/azure-mgmt>`_ >= 1.0.0
-    * `azure-mgmt-compute <https://pypi.python.org/pypi/azure-mgmt-compute>`_ >= 1.0.0
-    * `azure-mgmt-network <https://pypi.python.org/pypi/azure-mgmt-network>`_ >= 1.7.1
-    * `azure-mgmt-resource <https://pypi.python.org/pypi/azure-mgmt-resource>`_ >= 1.1.0
-    * `azure-mgmt-storage <https://pypi.python.org/pypi/azure-mgmt-storage>`_ >= 1.0.0
-    * `azure-mgmt-web <https://pypi.python.org/pypi/azure-mgmt-web>`_ >= 0.32.0
+    * `azure <https://pypi.python.org/pypi/azure>`_ >= 4.0.0
+    * `azure-common <https://pypi.python.org/pypi/azure-common>`_ >= 1.1.23
+    * `azure-mgmt <https://pypi.python.org/pypi/azure-mgmt>`_ >= 4.0.0
+    * `azure-mgmt-compute <https://pypi.python.org/pypi/azure-mgmt-compute>`_ >= 4.6.2
+    * `azure-mgmt-network <https://pypi.python.org/pypi/azure-mgmt-network>`_ >= 2.7.0
+    * `azure-mgmt-resource <https://pypi.python.org/pypi/azure-mgmt-resource>`_ >= 2.2.0
+    * `azure-mgmt-storage <https://pypi.python.org/pypi/azure-mgmt-storage>`_ >= 2.0.0
+    * `azure-mgmt-web <https://pypi.python.org/pypi/azure-mgmt-web>`_ >= 0.35.0
     * `azure-storage <https://pypi.python.org/pypi/azure-storage>`_ >= 0.34.3
-    * `msrestazure <https://pypi.python.org/pypi/msrestazure>`_ >= 0.4.21
+    * `msrestazure <https://pypi.python.org/pypi/msrestazure>`_ >= 0.6.2
 :platform: linux
 
 :configuration: This module requires Azure Resource Manager credentials to be passed as keyword arguments
@@ -61,26 +61,12 @@ try:
 except ImportError:
     pass
 
-__virtualname__ = 'azurearm_resource'
-
 log = logging.getLogger(__name__)
 
 
-def __virtual__():
-    if not HAS_LIBS:
-        return (
-            False,
-            'The following dependencies are required to use the AzureARM modules: '
-            'Microsoft Azure SDK for Python >= 2.0rc6, '
-            'MS REST Azure (msrestazure) >= 0.4'
-        )
-
-    return __virtualname__
-
-
-def resource_groups_list(**kwargs):
+async def list_(hub, **kwargs):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     List all resource groups within a subscription.
 
@@ -88,26 +74,26 @@ def resource_groups_list(**kwargs):
 
     .. code-block:: bash
 
-        salt-call azurearm_resource.resource_groups_list
+        azurerm.resource.group.list
 
     '''
     result = {}
-    resconn = __utils__['azurearm.get_client']('resource', **kwargs)
+    resconn = await hub.exec.utils.azurerm.get_client('resource', **kwargs)
     try:
-        groups = __utils__['azurearm.paged_object_to_list'](resconn.resource_groups.list())
+        groups = await hub.exec.utils.azurerm.paged_object_to_list(resconn.resource_groups.list())
 
         for group in groups:
             result[group['name']] = group
     except CloudError as exc:
-        __utils__['azurearm.log_cloud_error']('resource', str(exc), **kwargs)
+        await hub.exec.utils.azurerm.log_cloud_error('resource', str(exc), **kwargs)
         result = {'error': str(exc)}
 
     return result
 
 
-def resource_group_check_existence(name, **kwargs):
+async def check_existence(hub, name, **kwargs):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Check for the existence of a named resource group in the current subscription.
 
@@ -117,23 +103,23 @@ def resource_group_check_existence(name, **kwargs):
 
     .. code-block:: bash
 
-        salt-call azurearm_resource.resource_group_check_existence testgroup
+        azurerm.resource.group.check_existence testgroup
 
     '''
     result = False
-    resconn = __utils__['azurearm.get_client']('resource', **kwargs)
+    resconn = await hub.exec.utils.azurerm.get_client('resource', **kwargs)
     try:
         result = resconn.resource_groups.check_existence(name)
 
     except CloudError as exc:
-        __utils__['azurearm.log_cloud_error']('resource', str(exc), **kwargs)
+        await hub.exec.utils.azurerm.log_cloud_error('resource', str(exc), **kwargs)
 
     return result
 
 
-def resource_group_get(name, **kwargs):
+async def get(hub, name, **kwargs):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Get a dictionary representing a resource group's properties.
 
@@ -143,25 +129,25 @@ def resource_group_get(name, **kwargs):
 
     .. code-block:: bash
 
-        salt-call azurearm_resource.resource_group_get testgroup
+        azurerm.resource.group.get testgroup
 
     '''
     result = {}
-    resconn = __utils__['azurearm.get_client']('resource', **kwargs)
+    resconn = await hub.exec.utils.azurerm.get_client('resource', **kwargs)
     try:
         group = resconn.resource_groups.get(name)
         result = group.as_dict()
 
     except CloudError as exc:
-        __utils__['azurearm.log_cloud_error']('resource', str(exc), **kwargs)
+        await hub.exec.utils.azurerm.log_cloud_error('resource', str(exc), **kwargs)
         result = {'error': str(exc)}
 
     return result
 
 
-def resource_group_create_or_update(name, location, **kwargs):  # pylint: disable=invalid-name
+async def create_or_update(hub, name, location, **kwargs):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Create or update a resource group in a given location.
 
@@ -174,11 +160,11 @@ def resource_group_create_or_update(name, location, **kwargs):  # pylint: disabl
 
     .. code-block:: bash
 
-        salt-call azurearm_resource.resource_group_create_or_update testgroup westus
+        azurerm.resource.group.create_or_update testgroup westus
 
     '''
     result = {}
-    resconn = __utils__['azurearm.get_client']('resource', **kwargs)
+    resconn = await hub.exec.utils.azurerm.get_client('resource', **kwargs)
     resource_group_params = {
         'location': location,
         'managed_by': kwargs.get('managed_by'),
@@ -188,15 +174,15 @@ def resource_group_create_or_update(name, location, **kwargs):  # pylint: disabl
         group = resconn.resource_groups.create_or_update(name, resource_group_params)
         result = group.as_dict()
     except CloudError as exc:
-        __utils__['azurearm.log_cloud_error']('resource', str(exc), **kwargs)
+        await hub.exec.utils.azurerm.log_cloud_error('resource', str(exc), **kwargs)
         result = {'error': str(exc)}
 
     return result
 
 
-def resource_group_delete(name, **kwargs):
+async def delete(hub, name, **kwargs):
     '''
-    .. versionadded:: 2019.2.0
+    .. versionadded:: 1.0.0
 
     Delete a resource group from the subscription.
 
@@ -206,16 +192,16 @@ def resource_group_delete(name, **kwargs):
 
     .. code-block:: bash
 
-        salt-call azurearm_resource.resource_group_delete testgroup
+        azurerm.resource.group.delete testgroup
 
     '''
     result = False
-    resconn = __utils__['azurearm.get_client']('resource', **kwargs)
+    resconn = await hub.exec.utils.azurerm.get_client('resource', **kwargs)
     try:
         group = resconn.resource_groups.delete(name)
         group.wait()
         result = True
     except CloudError as exc:
-        __utils__['azurearm.log_cloud_error']('resource', str(exc), **kwargs)
+        await hub.exec.utils.azurerm.log_cloud_error('resource', str(exc), **kwargs)
 
     return result

@@ -28,16 +28,16 @@ import logging
 import sys
 
 # Import Salt libs
-import salt.config
-import salt.ext.six as six
-import salt.loader
-import salt.utils.stringutils
-import salt.version
-from salt.exceptions import (
-    SaltInvocationError, SaltSystemExit
-)
+#import salt.config
+import six
+#import salt.loader
+#import salt.utils.stringutils
+#import salt.version
+#from salt.exceptions import (
+#    SaltInvocationError, SaltSystemExit
+#)
 try:
-    from salt.ext.six.moves import range as six_range
+    from six.moves import range as six_range
 except ImportError:
     six_range = range
 
@@ -56,26 +56,26 @@ try:
 except ImportError:
     HAS_AZURE = False
 
-__opts__ = salt.config.minion_config('/etc/salt/minion')
-__salt__ = salt.loader.minion_mods(__opts__)
+#__opts__ = salt.config.minion_config('/etc/salt/minion')
+#__salt__ = salt.loader.minion_mods(__opts__)
 
 log = logging.getLogger(__name__)
 
 
-def __virtual__():
-    if not HAS_AZURE:
-        return False
-    else:
-        return True
+#def __virtual__():
+#    if not HAS_AZURE:
+#        return False
+#    else:
+#        return True
 
 
-def _determine_auth(**kwargs):
+async def _determine_auth(**kwargs):
     '''
     Acquire Azure ARM Credentials
     '''
-    if 'profile' in kwargs:
-        azure_credentials = __salt__['config.option'](kwargs['profile'])
-        kwargs.update(azure_credentials)
+    #if 'profile' in kwargs:
+    #    azure_credentials = __salt__['config.option'](kwargs['profile'])
+    #    kwargs.update(azure_credentials)
 
     service_principal_creds_kwargs = ['client_id', 'secret', 'tenant']
     user_pass_creds_kwargs = ['username', 'password']
@@ -91,7 +91,7 @@ def _determine_auth(**kwargs):
 
     if set(service_principal_creds_kwargs).issubset(kwargs):
         if not (kwargs['client_id'] and kwargs['secret'] and kwargs['tenant']):
-            raise SaltInvocationError(
+            raise Exception(
                 'The client_id, secret, and tenant parameters must all be '
                 'populated if using service principals.'
             )
@@ -102,7 +102,7 @@ def _determine_auth(**kwargs):
                                                       cloud_environment=cloud_env)
     elif set(user_pass_creds_kwargs).issubset(kwargs):
         if not (kwargs['username'] and kwargs['password']):
-            raise SaltInvocationError(
+            raise Exception(
                 'The username and password parameters must both be '
                 'populated if using username/password authentication.'
             )
@@ -111,7 +111,7 @@ def _determine_auth(**kwargs):
                                               kwargs['password'],
                                               cloud_environment=cloud_env)
     else:
-        raise SaltInvocationError(
+        raise Exception(
             'Unable to determine credentials. '
             'A subscription_id with username and password, '
             'or client_id, secret, and tenant or a profile with the '
@@ -119,16 +119,16 @@ def _determine_auth(**kwargs):
         )
 
     if 'subscription_id' not in kwargs:
-        raise SaltInvocationError(
+        raise Exception(
             'A subscription_id must be specified'
         )
 
-    subscription_id = salt.utils.stringutils.to_str(kwargs['subscription_id'])
+    subscription_id = str(kwargs['subscription_id'])
 
     return credentials, subscription_id, cloud_env
 
 
-def get_client(client_type, **kwargs):
+async def get_client(hub, client_type, **kwargs):
     '''
     Dynamically load the selected client and return a management client object
     '''
@@ -145,7 +145,7 @@ def get_client(client_type, **kwargs):
                   'web': 'WebSiteManagement'}
 
     if client_type not in client_map:
-        raise SaltSystemExit(
+        raise Exception(
             'The Azure ARM client_type {0} specified can not be found.'.format(
                 client_type)
         )
@@ -169,7 +169,7 @@ def get_client(client_type, **kwargs):
                   'The azure {0} client is not available.'.format(client_type)
         )
 
-    credentials, subscription_id, cloud_env = _determine_auth(**kwargs)
+    credentials, subscription_id, cloud_env = await _determine_auth(**kwargs)
 
     if client_type == 'subscription':
         client = Client(
@@ -183,12 +183,12 @@ def get_client(client_type, **kwargs):
             base_url=cloud_env.endpoints.resource_manager,
         )
 
-    client.config.add_user_agent('Salt/{0}'.format(salt.version.__version__))
+    client.config.add_user_agent('Salt/{0}'.format('SOMEVERSIONHERE'))
 
     return client
 
 
-def log_cloud_error(client, message, **kwargs):
+async def log_cloud_error(hub, client, message, **kwargs):
     '''
     Log an azurearm cloud error exception
     '''
@@ -206,7 +206,7 @@ def log_cloud_error(client, message, **kwargs):
     return
 
 
-def paged_object_to_list(paged_object):
+async def paged_object_to_list(hub, paged_object):
     '''
     Extract all pages within a paged object as a list of dictionaries
     '''
@@ -223,7 +223,7 @@ def paged_object_to_list(paged_object):
     return paged_return
 
 
-def create_object_model(module_name, object_name, **kwargs):
+async def create_object_model(hub, module_name, object_name, **kwargs):
     '''
     Assemble an object from incoming parameters.
     '''
@@ -243,7 +243,7 @@ def create_object_model(module_name, object_name, **kwargs):
             param = kwargs.get(attr)
             if param:
                 if items['type'][0].isupper() and isinstance(param, dict):
-                    object_kwargs[attr] = create_object_model(module_name, items['type'], **param)
+                    object_kwargs[attr] = await create_object_model(hub, module_name, items['type'], **param)
                 elif items['type'][0] == '{' and isinstance(param, dict):
                     object_kwargs[attr] = param
                 elif items['type'][0] == '[' and isinstance(param, list):
@@ -251,7 +251,8 @@ def create_object_model(module_name, object_name, **kwargs):
                     for list_item in param:
                         if items['type'][1].isupper() and isinstance(list_item, dict):
                             obj_list.append(
-                                create_object_model(
+                                await create_object_model(
+                                    hub,
                                     module_name,
                                     items['type'][items['type'].index('[')+1:items['type'].rindex(']')],
                                     **list_item
@@ -269,7 +270,7 @@ def create_object_model(module_name, object_name, **kwargs):
     return Model(**object_kwargs)
 
 
-def compare_list_of_dicts(old, new, convert_id_to_name=None):
+async def compare_list_of_dicts(hub, old, new, convert_id_to_name=None):
     '''
     Compare lists of dictionaries representing Azure objects. Only keys found in the "new" dictionaries are compared to
     the "old" dictionaries, since getting Azure objects from the API returns some read-only data which should not be
